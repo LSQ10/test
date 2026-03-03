@@ -159,6 +159,7 @@ print("2. Random Forest 模型训练")
 print("="*60)
 rf_model = RandomForestClassifier(
     n_estimators=100,
+    max_depth=4,  # 限制树深度，防止过拟合
     random_state=42,
     class_weight='balanced',
     n_jobs=-1
@@ -173,6 +174,11 @@ print("="*60)
 xgb_model = XGBClassifier(
     n_estimators=100,
     learning_rate=0.1,
+    max_depth=4,  # 剪枝参数，限制最大深度
+    min_child_weight=3,  # 剪枝参数，最小叶子节点样本数
+    gamma=0.2,  # 剪枝参数，分裂所需最小损失减少
+    subsample=0.8,  # 子采样比例
+    colsample_bytree=0.8,  # 特征采样比例
     random_state=42,
     use_label_encoder=False,
     eval_metric='logloss',
@@ -227,7 +233,10 @@ from sklearn.neural_network import MLPClassifier
 mlp_model = MLPClassifier(
     hidden_layer_sizes=(100,),
     max_iter=500,
-    random_state=42
+    random_state=42,
+    alpha=0.01,  # L2正则化强度
+    early_stopping=True,  # 提前停止防止过拟合
+    validation_fraction=0.2
 )
 mlp_result = evaluate_model(mlp_model, X_train, X_test, y_train, y_test, "MLP", scaled=True)
 results.append(mlp_result)
