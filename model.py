@@ -39,34 +39,6 @@ print(f"测试集大小: {X_test.shape}")
 print(f"训练集中各类样本数量:\n{y_train.value_counts()}")
 print(f"测试集中各类样本数量:\n{y_test.value_counts()}")
 
-# ===== SHAP特征重要性筛选 =====
-import shap
-print("\n正在计算SHAP特征重要性...")
-# 用XGBoost做特征重要性解释
-xgb_shap_model = XGBClassifier(
-    n_estimators=100,
-    learning_rate=0.1,
-    random_state=42,
-    use_label_encoder=False,
-    eval_metric='logloss',
-    scale_pos_weight=len(y_train[y_train==0])/len(y_train[y_train==1]) if sum(y_train==1) > 0 else 1
-)
-xgb_shap_model.fit(X_train, y_train)
-explainer = shap.TreeExplainer(xgb_shap_model)
-shap_values = explainer.shap_values(X_train)
-shap_importance = np.abs(shap_values).mean(axis=0)
-feature_importance = pd.DataFrame({
-    'feature': X_train.columns,
-    'shap_importance': shap_importance
-}).sort_values('shap_importance', ascending=False)
-print("SHAP特征重要性排序:")
-print(feature_importance)
-# 只选前10重要特征
-top_features = feature_importance['feature'].iloc[:10].tolist()
-print(f"选用前10重要特征: {top_features}")
-X_train = X_train[top_features]
-X_test = X_test[top_features]
-
 # 数据标准化（对需要标准化的模型）
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
