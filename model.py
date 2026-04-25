@@ -39,6 +39,34 @@ print(f"测试集大小: {X_test.shape}")
 print(f"训练集中各类样本数量:\n{y_train.value_counts()}")
 print(f"测试集中各类样本数量:\n{y_test.value_counts()}")
 
+# ===== SHAP特征重要性筛选 =====
+import shap
+print("\n正在计算SHAP特征重要性...")
+# 用XGBoost做特征重要性解释
+xgb_shap_model = XGBClassifier(
+    n_estimators=100,
+    learning_rate=0.1,
+    random_state=42,
+    use_label_encoder=False,
+    eval_metric='logloss',
+    scale_pos_weight=len(y_train[y_train==0])/len(y_train[y_train==1]) if sum(y_train==1) > 0 else 1
+)
+xgb_shap_model.fit(X_train, y_train)
+explainer = shap.TreeExplainer(xgb_shap_model)
+shap_values = explainer.shap_values(X_train)
+shap_importance = np.abs(shap_values).mean(axis=0)
+feature_importance = pd.DataFrame({
+    'feature': X_train.columns,
+    'shap_importance': shap_importance
+}).sort_values('shap_importance', ascending=False)
+print("SHAP特征重要性排序:")
+print(feature_importance)
+# 只选前10重要特征
+top_features = feature_importance['feature'].iloc[:10].tolist()
+print(f"选用前10重要特征: {top_features}")
+X_train = X_train[top_features]
+X_test = X_test[top_features]
+
 # 数据标准化（对需要标准化的模型）
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
@@ -152,7 +180,6 @@ xgb_model = XGBClassifier(
     subsample=0.8,  # 子采样比例
     colsample_bytree=0.8,  # 特征采样比例
     random_state=42,
-    use_label_encoder=False,
     eval_metric='logloss',
     scale_pos_weight=len(y_train[y_train==0])/len(y_train[y_train==1]) if sum(y_train==1) > 0 else 1
 )
@@ -180,7 +207,13 @@ print("="*60)
 from sklearn.tree import DecisionTreeClassifier
 dt_model = DecisionTreeClassifier(
     random_state=42,
-    class_weight='balanced'
+    class_weight='balanced',
+    max_depth=5,
+    min_samples_split=10,
+    min_samples_leaf=5,
+    max_leaf_nodes=20,
+    ccp_alpha=0.01,
+    criterion='gini'
 )
 dt_result = evaluate_model(dt_model, X_train, X_test, y_train, y_test, "Decision Tree", scaled=False)
 results.append(dt_result)
@@ -212,6 +245,38 @@ mlp_model = MLPClassifier(
 )
 mlp_result = evaluate_model(mlp_model, X_train, X_test, y_train, y_test, "MLP", scaled=True)
 results.append(mlp_result)
+
+# ================== 模型堆叠 ==================
+
+from sklearn.ensemble import StackingClassifier
+from itertools import combinations
+base_models = [
+    ('lr', LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced')),
+    ('rf', RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42, class_weight='balanced', n_jobs=-1)),
+    ('xgb', XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=4, min_child_weight=3, gamma=0.2, subsample=0.8, colsample_bytree=0.8, random_state=42, eval_metric='logloss', scale_pos_weight=len(y_train[y_train==0])/len(y_train[y_train==1]) if sum(y_train==1) > 0 else 1)),
+    ('svm', SVC(kernel='rbf', C=1.0, random_state=42, class_weight='balanced', probability=True)),
+    ('dt', DecisionTreeClassifier(random_state=42, class_weight='balanced', max_depth=5, min_samples_split=10, min_samples_leaf=5, max_leaf_nodes=20, ccp_alpha=0.01, criterion='gini')),
+    ('knn', KNeighborsClassifier(n_neighbors=5, n_jobs=-1)),
+    ('mlp', MLPClassifier(hidden_layer_sizes=(100,), max_iter=500, random_state=42, alpha=0.01, early_stopping=True, validation_fraction=0.2))
+]
+print("\n" + "="*60)
+print("8. 多种模型堆叠（Stacking）训练")
+print("="*60)
+for n in range(2, len(base_models)+1):
+    for combo in combinations(base_models, n):
+        combo_names = [name for name, _ in combo]
+        estimators = [(name, model) for name, model in combo]
+        stack_model = StackingClassifier(
+            estimators=estimators,
+            final_estimator=LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced'),
+            cv=5,
+            n_jobs=-1,
+            passthrough=False
+        )
+        model_label = f"Stacking({' + '.join(combo_names)})"
+        print(f"\n正在训练: {model_label}")
+        stack_result = evaluate_model(stack_model, X_train, X_test, y_train, y_test, model_label, scaled=True)
+        results.append(stack_result)
 
 # 结果比较
 print("\n" + "="*60)
